@@ -15,7 +15,17 @@ Turn any podcast link into a clean Markdown transcript, climbing a ladder of sou
 
 ## The ladder
 
-Work through the rungs IN ORDER. Stop at the first rung that yields a transcript. Before rungs 4 and 5, tell the user what the rung requires and get their OK.
+Work through the rungs IN ORDER. Stop at the first rung that yields a transcript.
+
+**Never skip a rung to reach transcription.** Rung 5 downloads the audio, spends the user's API quota or their CPU, and produces the worst transcript of the five. Rungs 1-3 cost nothing, and rung 4 is usually better than anything ASR will give you.
+
+**Hard rule at rung 4:** on macOS, if rungs 0-3 came up empty you must STOP and ask the user before going any further. Do not decide on their behalf that they would rather not be asked, and do not treat "opt-in" as "skip it." Say what you found, then offer the choice:
+
+> Rungs 1-3 came up empty for this episode. Apple Podcasts may already have a transcript cached on your Mac — that would be free, instant, and better quality than transcribing the audio. Want me to check? Two options: I can look for it myself, or you can find the file and hand me just that one.
+>
+> Otherwise I can transcribe the audio (rung 5), which downloads the episode and uses a Whisper API key or local compute.
+
+Wait for their answer. Only run rung 5 if they decline rung 4, rung 4 comes up empty, or they are not on macOS.
 
 ### Rung 0 — Resolve the link (always run first)
 
@@ -57,7 +67,7 @@ Verify the match (title AND duration within ~2 minutes of the episode). Then pul
 yt-dlp --write-subs --write-auto-subs --sub-langs "en.*,zh.*" --skip-download --convert-subs srt -o "/tmp/%(id)s" "https://youtube.com/watch?v=<id>"
 ```
 
-Convert the .srt to Markdown (strip timestamps, merge lines into paragraphs). If YouTube blocks caption downloads (bot checks), note it and move on — do not retry endlessly.
+Then convert the .srt with `readable.ts` (see *Formatting the result* below) — auto-captions repeat themselves and need de-duplication, not a plain timestamp strip. If YouTube blocks caption downloads (bot checks), note it and move on — do not retry endlessly.
 
 ### Rung 4 — Apple Podcasts local transcript (macOS, opt-in)
 
@@ -92,17 +102,30 @@ Shared options: `-o <path>`, `--format text|srt|json`, `--list`.
 
 ### Rung 5 — Transcribe the audio (opt-in, needs a key OR local compute)
 
-Last resort; the only rung that works for every episode (and currently the only one for Xiaoyuzhou). **Ask the user to choose an engine:**
+Only after the rung-4 conversation above. This is the last resort: it works for every episode (and is currently the only option for Xiaoyuzhou), but it costs the most and reads the worst. **Ask the user to choose an engine:**
 
 - `groq` — fast, free tier (~2h audio/day), needs a free API key; audio is sent to Groq.
 - `local` — whisper.cpp on their machine, slower, nothing leaves the machine.
 
 ```bash
-bash ${SKILL_DIR}/scripts/asr.sh "<audioUrl-from-rung-0>" -o /tmp/transcript.md -t "<episode title>" -s "<episode link>" -e groq
-# add -l zh / -l en to pin the language; omit to auto-detect
+bash ${SKILL_DIR}/scripts/asr.sh "<audioUrl-from-rung-0>" -o /tmp/transcript.md \
+  -t "<episode title>" -s "<episode link>" -e groq -l "<language-from-rung-0>"
 ```
 
+**Take `-l` from rung 0's `language` field — never from your own impression of the show.** That field comes from the feed's declared language, or from CJK characters in the titles. If it is absent, omit `-l` entirely and let Whisper auto-detect; a wrong language flag produces a much worse transcript than no flag. For Chinese, the script also passes a punctuation style prompt, because Whisper otherwise returns Chinese with no punctuation at all.
+
 Handles download, transcode, 20MB chunking, rate-limit retry, merge.
+
+### Formatting the result
+
+ASR output arrives as one unbroken block, and YouTube auto-captions arrive as a rolling window that repeats itself. Run either through:
+
+```bash
+npx -y bun ${SKILL_DIR}/scripts/readable.ts <file.srt|file.txt|file.md> \
+  -t "<title>" -s "<source url>" -o <out.md>
+```
+
+It detects captions vs plain text, de-duplicates the rolling window, and breaks the text into paragraphs.
 
 ## Output
 

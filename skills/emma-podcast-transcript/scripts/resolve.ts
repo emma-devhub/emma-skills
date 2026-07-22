@@ -16,6 +16,8 @@ type Resolved = {
   webpage?: string;
   publishedTranscripts: Transcript[];
   youtubeQuery?: string;
+  /** ISO-ish language for ASR, from the feed or the platform. Never guessed by eye. */
+  language?: string;
   notes: string[];
 };
 
@@ -107,6 +109,20 @@ function inlineTranscript(item: string): Transcript | undefined {
   };
 }
 
+/**
+ * Language for the ASR rung. Prefer the feed's declared <language>; fall back to
+ * counting CJK characters in the titles. Anything else stays undefined so
+ * Whisper auto-detects rather than being told the wrong thing.
+ */
+function feedLanguage(rss: string, ...titles: (string | undefined)[]): string | undefined {
+  const declared = rss.match(/<language>\s*([a-z]{2})(?:[-_][a-z]{2})?\s*<\/language>/i)?.[1];
+  if (declared) return declared.toLowerCase();
+  const text = titles.filter(Boolean).join(" ");
+  const cjk = (text.match(/[一-鿿]/g) ?? []).length;
+  if (cjk >= 2) return "zh";
+  return undefined;
+}
+
 function enclosureUrl(item: string): string | undefined {
   const u = item.match(/<enclosure\b[^>]*url="([^"]+)"/i)?.[1];
   return u ? decodeEntities(u) : undefined;
@@ -172,6 +188,7 @@ async function resolveApple(url: string): Promise<Resolved> {
   if (res.feedUrl) {
     try {
       const rss = await get(res.feedUrl);
+      res.language = feedLanguage(rss, res.showTitle, res.episodeTitle);
       const item = findItem(rss, res.episodeGuid, res.episodeTitle);
       if (item) {
         res.publishedTranscripts = transcriptTags(item);
@@ -209,6 +226,7 @@ async function resolveXiaoyuzhou(url: string): Promise<Resolved> {
     audioUrl,
     webpage: url,
     publishedTranscripts: [],
+    language: "zh",
     notes,
   };
 }
@@ -216,10 +234,13 @@ async function resolveXiaoyuzhou(url: string): Promise<Resolved> {
 async function resolveFeed(url: string): Promise<Resolved> {
   const rss = await get(url);
   const first = items(rss)[0];
+  const showTitle = tag(rss.split("<item")[0], "title");
+  const episodeTitle = first ? tag(first, "title") : undefined;
   return {
     platform: "rss",
-    showTitle: tag(rss.split("<item")[0], "title"),
-    episodeTitle: first ? tag(first, "title") : undefined,
+    language: feedLanguage(rss, showTitle, episodeTitle),
+    showTitle,
+    episodeTitle,
     audioUrl: first ? enclosureUrl(first) : undefined,
     feedUrl: url,
     webpage: first ? tag(first, "link") : undefined,

@@ -84,10 +84,19 @@ else
     done
   fi
 
+  # Whisper drops punctuation entirely for Chinese unless the prompt shows it
+  # what punctuated output looks like. Without this the transcript is one
+  # unbroken wall of characters that nothing downstream can paragraph.
+  STYLE_PROMPT=""
+  case "$LANGUAGE" in
+    zh*) STYLE_PROMPT="以下是一段普通话播客的转录，请使用标准中文标点符号。例如：今天我们聊一聊宏观经济、利率走势，以及市场的反应。" ;;
+  esac
+
   transcribe_chunk() {
     local chunk_file="$1" response http_code body
     local lang_form=()
     [ -n "$LANGUAGE" ] && lang_form=(-F "language=$LANGUAGE")
+    [ -n "$STYLE_PROMPT" ] && lang_form+=(-F "prompt=$STYLE_PROMPT")
     response=$(curl -s -w "\n%{http_code}" \
       https://api.groq.com/openai/v1/audio/transcriptions \
       -H "Authorization: Bearer $GROQ_API_KEY" \
