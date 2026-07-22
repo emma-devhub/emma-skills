@@ -19,13 +19,21 @@ Work through the rungs IN ORDER. Stop at the first rung that yields a transcript
 
 **Never skip a rung to reach transcription.** Rung 5 downloads the audio, spends the user's API quota or their CPU, and produces the worst transcript of the five. Rungs 1-3 cost nothing, and rung 4 is usually better than anything ASR will give you.
 
-**Hard rule at rung 4:** on macOS, if rungs 0-3 came up empty you must STOP and ask the user before going any further. Do not decide on their behalf that they would rather not be asked, and do not treat "opt-in" as "skip it." Say what you found, then offer the choice:
+**Hard rule at rung 4:** on macOS, if rungs 0-3 came up empty you must STOP and ask the user before going any further. Do not decide on their behalf that they would rather not be asked, and do not treat "opt-in" as "skip it."
 
-> Rungs 1-3 came up empty for this episode. Apple Podcasts may already have a transcript cached on your Mac — that would be free, instant, and better quality than transcribing the audio. Want me to check? Two options: I can look for it myself, or you can find the file and hand me just that one.
+Tell them what to do — not what you tried. Which rungs you climbed is your bookkeeping; they only need to know that something better exists, how to get it, and what happens if they skip it. When 4b reports a transcript that is not cached yet:
+
+> Apple has an official transcript for this episode, but it takes one tap from you:
 >
-> Otherwise I can transcribe the audio (rung 5), which downloads the episode and uses a Whisper API key or local compute.
+> open the episode in Apple Podcasts → click ⋯ → View Transcript → let it load, then tell me.
+>
+> Want me to open the episode for you?
+>
+> If you'd rather not bother, I can transcribe the audio instead — a few minutes, and a rougher transcript.
 
-Wait for their answer. Only run rung 5 if they decline rung 4, rung 4 comes up empty, or they are not on macOS.
+Keep it about that short. No rung numbers, no summary of the free paths you already tried, no explanation of what the skill will and will not read — the README covers that, and raising it unprompted invents a worry the user did not have. Mirror the user's language.
+
+Wait for their answer. Only run rung 5 if they decline, rung 4 comes up empty, or they are not on macOS.
 
 ### Rung 0 — Resolve the link (always run first)
 
