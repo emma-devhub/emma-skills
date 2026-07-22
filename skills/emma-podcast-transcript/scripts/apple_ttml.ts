@@ -8,7 +8,7 @@
  */
 
 import { execSync, spawnSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "util";
 
@@ -29,6 +29,9 @@ const { values, positionals } = parseArgs({
     output: { type: "string", short: "o" },
     format: { type: "string", default: "text" },
     list: { type: "boolean", default: false },
+    find: { type: "boolean", default: false },
+    file: { type: "string" },
+    reveal: { type: "string" },
     help: { type: "boolean", short: "h", default: false },
   },
   allowPositionals: true,
@@ -36,21 +39,26 @@ const { values, positionals } = parseArgs({
 
 if (values.help) {
   console.log(`
-Usage: podcast-transcript <url> [options]
+Read a transcript Apple Podcasts already cached on this Mac. Never controls the app.
+
+Hand a file over yourself (nothing else is read):
+  --file <path.ttml>    Parse one TTML file you picked
+
+Help yourself find it:
+  --find                List recent cached transcripts with their opening lines
+  --reveal <n>          Show result #n from --find in Finder
+
+Look it up automatically (reads the Podcasts library database):
+  <apple-podcasts-url>  Find this episode's cached transcript
+  --list                List episodes whose transcripts are cached
 
 Options:
   -o, --output <path>   Save transcript to file
   --format <fmt>        Output format: text (default), srt, json
-  --list                List all episodes with cached transcripts
   -h, --help            Show this help
 `);
   process.exit(0);
 }
-
-// ── Paths to compiled Swift tools ────────────────────────────────────────────
-
-const SKILL_DIR = join(import.meta.dir, "..");
-const PODCASTS_CONTROL = join(SKILL_DIR, "scripts/podcasts_control");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -106,57 +114,64 @@ function findEpisodeByUrl(url: string) {
   return rows[0] ?? null;
 }
 
-/**
- * Trigger transcript fetch by opening the episode in Apple Podcasts and clicking
- * More → "View Transcript", then read the text directly from the AX UI.
- * This avoids waiting for the TTML file to be written to disk (which is async
- * and unpredictable — can take anywhere from seconds to 30+ minutes).
- * Returns the plain text transcript, or null on failure.
- */
-async function fetchTranscriptViaAX(
-  episodeId: string,
-  podcastCollectionId: string
-): Promise<string | null> {
-  if (!existsSync(PODCASTS_CONTROL)) {
-    console.error("Note: podcasts_control binary not found, cannot auto-fetch.");
-    return null;
+/** First few words of dialogue inside a TTML file, so a human can recognize the episode. */
+function ttmlSnippet(path: string, maxChars = 110): string {
+  try {
+    const text = readFileSync(path, "utf8")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+  } catch {
+    return "(unreadable)";
   }
-
-  console.error("Transcript not cached locally. Opening episode in Apple Podcasts...");
-
-  // Open the episode via pcast:// URL scheme
-  const pcastUrl = `pcast://podcasts.apple.com/podcast/id${podcastCollectionId}?i=${episodeId}`;
-  spawnSync("open", [pcastUrl], { stdio: "ignore" });
-
-  // Wait for Podcasts to navigate to the episode detail page
-  // 8s is needed: pcast:// takes time to switch episode and render the detail view
-  console.error("Waiting for Apple Podcasts to load episode...");
-  await sleep(8000);
-
-  // Click More → "View Transcript" to open the transcript panel
-  console.error("Clicking More → View Transcript...");
-  const clickResult = spawnSync(PODCASTS_CONTROL, ["view-transcript"], { encoding: "utf8" });
-  if (clickResult.status !== 0) {
-    console.error("Failed to click View Transcript:", clickResult.stderr);
-    return null;
-  }
-
-  // Read transcript text directly from the AXTextArea in Podcasts UI.
-  // Podcasts renders transcript in memory immediately — no need to wait for disk.
-  // Wait 3s for Podcasts to fully render transcript (disclaimer + full text).
-  await sleep(3000);
-  console.error("Reading transcript from Apple Podcasts UI...");
-  const readResult = spawnSync(PODCASTS_CONTROL, ["read-transcript"], { encoding: "utf8" });
-  if (readResult.status !== 0 || !readResult.stdout.trim()) {
-    console.error("Failed to read transcript from UI:", readResult.stderr);
-    return null;
-  }
-
-  return readResult.stdout.trim();
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * List the most recently cached TTML files so the user can pick theirs by eye.
+ * Apple's cache uses hashed directories and opaque filenames, so we show each
+ * file's modification time plus its opening line — that is what makes an
+ * episode recognizable to a human.
+ */
+function findRecentTtml(limit = 10) {
+  if (!existsSync(TTML_ROOT)) {
+    console.error(`No Apple Podcasts transcript cache found at:\n  ${TTML_ROOT}`);
+    process.exit(1);
+  }
+  let paths: string[] = [];
+  try {
+    paths = execSync(`find "${TTML_ROOT}" -name "*.ttml" -type f`, { encoding: "utf8" })
+      .split("\n")
+      .filter(Boolean);
+  } catch {
+    /* find returns non-zero when it hits nothing */
+  }
+  if (paths.length === 0) {
+    console.error("No cached transcripts yet.\n");
+    console.error("In Apple Podcasts: open the episode, click ⋯ (More) → View Transcript,");
+    console.error("let it load, then run this again.");
+    process.exit(1);
+  }
+
+  const rows = paths
+    .map((p) => ({ path: p, mtime: statSync(p).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, limit);
+
+  console.log(`Most recently cached Apple Podcasts transcripts:\n`);
+  rows.forEach((r, i) => {
+    const when = new Date(r.mtime).toLocaleString();
+    console.log(`[${i + 1}] ${when}`);
+    console.log(`    ${ttmlSnippet(r.path)}`);
+    console.log(`    ${r.path}\n`);
+  });
+  console.log(`Use the one you recognize:`);
+  console.log(`  --file "<path above>"     parse it into Markdown`);
+  console.log(`  --reveal <number>         show it in Finder`);
+  return rows.map((r) => r.path);
 }
 
 /** Resolve TTML relative path → absolute path */
@@ -323,6 +338,50 @@ function listCachedTranscripts() {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const fmtEarly = values.format as string;
+
+  // ── Human-handed file: the only thing we touch is this one path. No DB, no scan.
+  if (values.file) {
+    const p = values.file.replace(/^~/, process.env.HOME!);
+    if (!existsSync(p)) {
+      console.error(`File not found: ${p}`);
+      process.exit(1);
+    }
+    const segments = parseTtml(readFileSync(p, "utf8"));
+    if (segments.length === 0) {
+      console.error(`No transcript segments found in ${p}. Is it a .ttml transcript?`);
+      process.exit(1);
+    }
+    const body =
+      fmtEarly === "srt"
+        ? formatSrt(segments)
+        : fmtEarly === "json"
+          ? formatJson(segments)
+          : formatText(segments);
+    if (values.output) {
+      writeFileSync(values.output, body, "utf8");
+      console.error(`Transcript saved to: ${values.output}`);
+    } else {
+      console.log(body);
+    }
+    return;
+  }
+
+  // ── Browse the cache yourself.
+  if (values.find || values.reveal) {
+    const paths = findRecentTtml();
+    if (values.reveal) {
+      const idx = parseInt(values.reveal, 10) - 1;
+      if (isNaN(idx) || !paths[idx]) {
+        console.error(`\n--reveal expects a number between 1 and ${paths.length}.`);
+        process.exit(1);
+      }
+      spawnSync("open", ["-R", paths[idx]], { stdio: "ignore" });
+      console.error(`\nRevealed in Finder: ${paths[idx]}`);
+    }
+    return;
+  }
+
   // Check DB exists
   if (!existsSync(DB_PATH)) {
     console.error("Apple Podcasts database not found.");
@@ -403,22 +462,14 @@ async function main() {
       output = `# ${podTitle} — ${epTitle}\n\n${formatText(segments)}`;
     }
   } else {
-    // 3b. TTML not cached — fetch via AX (open Podcasts, click View Transcript, read UI text)
-    // This is reliable because Podcasts renders transcript in memory immediately,
-    // while TTML disk write is async and can take seconds to 30+ minutes.
-    if (!storeTrackId || !podcastCollectionId) {
-      console.error("\nCould not determine episode/podcast ID to open in Apple Podcasts.");
-      process.exit(1);
-    }
-    const axText = await fetchTranscriptViaAX(storeTrackId, podcastCollectionId);
-    if (!axText) {
-      console.error("\nCould not fetch transcript from Apple Podcasts UI.");
-      console.error("Make sure Apple Podcasts is running and this episode has a transcript.");
-      process.exit(1);
-    }
-    console.error(`Fetched transcript from Apple Podcasts UI (${axText.length} chars).\n`);
-    // AX text is plain text — wrap in heading
-    output = `# ${podTitle} — ${epTitle}\n\n${axText}`;
+    // 3b. Apple knows about a transcript but has not written it to disk yet.
+    // Tell the user how to make Apple cache it — we do not drive the app for them.
+    console.error("\nApple Podcasts has a transcript for this episode but has not cached it yet.");
+    console.error("\nTo get it (about 15 seconds, all in your own hands):");
+    console.error("  1. Open this episode in Apple Podcasts");
+    console.error("  2. Click ⋯ (More) → View Transcript, and let it finish loading");
+    console.error("  3. Re-run this command, or run it with --find and pick your episode");
+    process.exit(1);
   }
 
   // 5. Write or print

@@ -49,15 +49,36 @@ yt-dlp --write-subs --write-auto-subs --sub-langs "en.*,zh.*" --skip-download --
 
 Convert the .srt to Markdown (strip timestamps, merge lines into paragraphs). If YouTube blocks caption downloads (bot checks), note it and move on — do not retry endlessly.
 
-### Rung 4 — Apple Podcasts local cache (macOS, opt-in)
+### Rung 4 — Apple Podcasts local transcript (macOS, opt-in)
 
-Only offer this when the user is on macOS with the Podcasts app. **Ask first**, explaining: this reads transcript files Apple already cached on their machine (`~/Library/Group Containers/243LU875E5.groups.com.apple.podcasts/`) — it reads two files, it does not control the app. Apple's own transcripts are high quality, so this beats ASR when available.
+Apple writes its own transcripts to a cache folder on the user's Mac. They are high quality (speaker labels, real punctuation), so this beats ASR whenever it is available. **This skill never controls the Podcasts app** — no clicking, no accessibility permissions, no screen access.
+
+First, the user makes Apple cache the transcript, in their own hands: open the episode in Apple Podcasts → **⋯ (More) → View Transcript** → let it load. That is the only manual step, and it takes about 15 seconds.
+
+Then pick the level of access the user is comfortable with:
+
+**4a — user hands over one file (least access; prefer this if they hesitate).** They locate the file and give you the path; nothing else on disk is touched:
+
+```bash
+npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts --file "<path/to/file.ttml>"
+```
+
+Apple's cache uses hashed folders and opaque filenames, so finding it unaided is genuinely unpleasant. Offer `--find`, which lists the recently cached transcripts with **the opening line of each** — that is what makes an episode recognizable:
+
+```bash
+npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts --find      # list recent, with snippets
+npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts --reveal 2  # show #2 in Finder
+```
+
+`--find` reads only the transcript cache folder. The user can also browse it themselves — the path is printed with every result.
+
+**4b — automatic lookup (convenience).** Reads the Podcasts library database to map an episode URL straight to its cached file. Offer it when the user would rather not hunt for files:
 
 ```bash
 npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts "<apple-podcasts-episode-url>"
 ```
 
-If the transcript is not cached yet, tell the user: open the episode in Podcasts, play a few seconds, then retry. Options: `-o <path>`, `--format text|srt|json`, `--list`.
+Shared options: `-o <path>`, `--format text|srt|json`, `--list`.
 
 ### Rung 5 — Transcribe the audio (opt-in, needs a key OR local compute)
 
@@ -80,5 +101,5 @@ Always deliver a single Markdown file: `# <episode title>`, source link, duratio
 ## Privacy stance (also the README pitch)
 
 - Rungs 0-3 touch only public endpoints. No accounts, no keys, no local file access.
-- Rung 4 reads two local files and only runs after the user says yes.
+- Rung 4 never controls the Podcasts app — no accessibility or screen permissions. It reads a transcript Apple already wrote to disk, and the user chooses whether to hand over a single file or allow a lookup.
 - Rung 5 lets the user pick between a cloud key and fully-local compute.
