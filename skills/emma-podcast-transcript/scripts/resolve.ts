@@ -5,7 +5,7 @@
 // and any transcript already published in the RSS feed (Podcasting 2.0
 // <podcast:transcript> tag). Zero permissions, zero API keys.
 
-type Transcript = { url: string; type?: string; source: string };
+type Transcript = { url?: string; type?: string; source: string; text?: string };
 type Resolved = {
   platform: string;
   showTitle?: string;
@@ -19,9 +19,12 @@ type Resolved = {
   notes: string[];
 };
 
-const input = process.argv[2];
+const argv = process.argv.slice(2);
+const wantTranscript = argv.includes("--transcript");
+const input = argv.find((a) => !a.startsWith("--"));
 if (!input) {
-  console.error("usage: bun resolve.ts <podcast-episode-link>");
+  console.error("usage: bun resolve.ts <podcast-episode-link> [--transcript]");
+  console.error("  --transcript  print the show-notes transcript as Markdown, if one exists");
   process.exit(1);
 }
 
@@ -39,11 +42,14 @@ function stripCdata(s: string): string {
 
 function decodeEntities(s: string): string {
   return s
-    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'");
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
 }
 
 function tag(xml: string, name: string): string | undefined {
@@ -63,6 +69,42 @@ function transcriptTags(item: string): Transcript[] {
     if (url) out.push({ url: decodeEntities(url), type, source: "rss podcast:transcript tag" });
   }
   return out;
+}
+
+/**
+ * Some shows (Morgan Stanley's Thoughts on the Market, many corporate podcasts)
+ * paste the whole transcript into the episode's show notes rather than
+ * publishing a podcast:transcript tag. Look for a transcript marker in the
+ * description and return everything after it.
+ */
+function inlineTranscript(item: string): Transcript | undefined {
+  const raw =
+    item.match(/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/i)?.[1] ??
+    item.match(/<description[^>]*>([\s\S]*?)<\/description>/i)?.[1];
+  if (!raw) return undefined;
+
+  let txt = stripCdata(raw);
+  txt = decodeEntities(decodeEntities(txt))
+    .replace(/<br\s*\/?>|<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/ /g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  // "----- Transcript -----", "Transcript:", "Full transcript" ...
+  const marker = txt.match(/^[-\s*]*(?:full\s+)?transcript[-\s*:]*$/im);
+  let body = marker ? txt.slice(marker.index! + marker[0].length).trim() : txt;
+
+  // Without a marker, only trust it if it is long enough to be a real transcript
+  // rather than a blurb.
+  if (!marker && body.length < 2500) return undefined;
+  if (body.length < 800) return undefined;
+
+  return {
+    source: marker ? "inline transcript in show notes" : "show notes body (no marker; verify)",
+    text: body,
+  };
 }
 
 function enclosureUrl(item: string): string | undefined {
@@ -133,6 +175,8 @@ async function resolveApple(url: string): Promise<Resolved> {
       const item = findItem(rss, res.episodeGuid, res.episodeTitle);
       if (item) {
         res.publishedTranscripts = transcriptTags(item);
+        const inline = inlineTranscript(item);
+        if (inline) res.publishedTranscripts.push(inline);
         res.webpage = tag(item, "link");
         res.audioUrl = res.audioUrl ?? enclosureUrl(item);
         res.episodeTitle = res.episodeTitle ?? tag(item, "title");
@@ -179,7 +223,9 @@ async function resolveFeed(url: string): Promise<Resolved> {
     audioUrl: first ? enclosureUrl(first) : undefined,
     feedUrl: url,
     webpage: first ? tag(first, "link") : undefined,
-    publishedTranscripts: first ? transcriptTags(first) : [],
+    publishedTranscripts: first
+      ? [...transcriptTags(first), ...(inlineTranscript(first) ? [inlineTranscript(first)!] : [])]
+      : [],
     notes: ["Direct RSS input: resolved the LATEST episode. Pass an episode page link to target a specific one."],
   };
 }
@@ -197,7 +243,29 @@ async function main() {
   else res = await resolveFeed(input);
 
   if (res.showTitle && res.episodeTitle) res.youtubeQuery = `${res.showTitle} ${res.episodeTitle}`;
-  console.log(JSON.stringify(res, null, 2));
+
+  const inline = res.publishedTranscripts.find((t) => t.text);
+
+  if (wantTranscript) {
+    if (!inline?.text) {
+      console.error("No inline transcript in this feed's show notes. Continue down the ladder.");
+      process.exit(1);
+    }
+    const head = [`# ${res.episodeTitle ?? "Transcript"}`, ""];
+    if (res.showTitle) head.push(`Show: ${res.showTitle}`);
+    head.push(`Source: ${input}`, `Via: ${inline.source}`, "", "---", "");
+    console.log(head.join("\n") + inline.text);
+    return;
+  }
+
+  // Keep the JSON scannable: report that inline text exists, don't inline it.
+  const json = {
+    ...res,
+    publishedTranscripts: res.publishedTranscripts.map(({ text, ...rest }) =>
+      text ? { ...rest, chars: text.length, hint: "rerun with --transcript to print it" } : rest
+    ),
+  };
+  console.log(JSON.stringify(json, null, 2));
 }
 
 main().catch((e) => {

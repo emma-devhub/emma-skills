@@ -27,7 +27,17 @@ Accepts Apple Podcasts episode links, Xiaoyuzhou episode links, RSS feed URLs, Y
 
 ### Rung 1 — Published transcript in the RSS feed (zero permission)
 
-If `publishedTranscripts` is non-empty, fetch the best format (prefer text/vtt/srt over json) with `curl`, convert to clean Markdown, done. Coverage is low (~1% of shows) but it is a free win when present.
+Two shapes, both surfaced in `publishedTranscripts`:
+
+**1a — `podcast:transcript` tag.** Entries with a `url`. Fetch the best format (prefer text/vtt/srt over json) with `curl` and convert to clean Markdown. Coverage is low (~1% of shows) but free when present.
+
+**1b — transcript pasted into the show notes.** Entries whose `source` says *inline transcript in show notes*. Many corporate and institutional podcasts (Morgan Stanley's Thoughts on the Market, bank and consultancy shows) put the entire transcript in the episode description with a `----- Transcript -----` marker, and publish no tag at all. Print it directly:
+
+```bash
+npx -y bun ${SKILL_DIR}/scripts/resolve.ts "<link>" --transcript
+```
+
+These are publisher-written transcripts with real speaker names, so they beat anything ASR would produce. When `source` warns *no marker; verify*, skim the output before trusting it — it may be a long description rather than a transcript.
 
 ### Rung 2 — Show notes / episode webpage (zero permission)
 
