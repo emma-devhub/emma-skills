@@ -32,6 +32,7 @@ const { values, positionals } = parseArgs({
     find: { type: "boolean", default: false },
     file: { type: "string" },
     reveal: { type: "string" },
+    open: { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
   },
   allowPositionals: true,
@@ -51,6 +52,8 @@ Help yourself find it:
 Look it up automatically (reads the Podcasts library database):
   <apple-podcasts-url>  Find this episode's cached transcript
   --list                List episodes whose transcripts are cached
+  --open                If it is not cached yet, open the episode in Podcasts
+                        so you are one click from View Transcript
 
 Options:
   -o, --output <path>   Save transcript to file
@@ -62,11 +65,17 @@ Options:
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Episode titles routinely contain "|" ("The Inflation Brief | July 2026"), which
+// silently shifts every column when sqlite3 uses its default pipe separator.
+// Use ASCII unit separator instead — it cannot occur in this data.
+const SEP = "\x1f";
+
 function sqlite(query: string): string {
   try {
-    return execSync(`sqlite3 "${DB_PATH}" "${query.replace(/"/g, '\\"')}"`, {
+    return execSync(`sqlite3 -separator $'\\x1f' "${DB_PATH}" "${query.replace(/"/g, '\\"')}"`, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
+      shell: "/bin/bash",
     }).trim();
   } catch {
     return "";
@@ -76,7 +85,7 @@ function sqlite(query: string): string {
 function sqliteRows(query: string): string[][] {
   const raw = sqlite(query);
   if (!raw) return [];
-  return raw.split("\n").map((line) => line.split("|"));
+  return raw.split("\n").map((line) => line.split(SEP));
 }
 
 /** Extract Apple Podcasts episode ID from a URL.
@@ -466,7 +475,17 @@ async function main() {
     // Tell the user how to make Apple cache it — we do not drive the app for them.
     console.error("\nApple Podcasts has a transcript for this episode but has not cached it yet.");
     console.error("\nTo get it (about 15 seconds, all in your own hands):");
-    console.error("  1. Open this episode in Apple Podcasts");
+    if (storeTrackId && podcastCollectionId) {
+      const deepLink = `pcast://podcasts.apple.com/podcast/id${podcastCollectionId}?i=${storeTrackId}`;
+      console.error(`  1. Open the episode:  ${deepLink}`);
+      console.error(`     (or rerun with --open and this command opens it for you)`);
+      if (values.open) {
+        spawnSync("open", [deepLink], { stdio: "ignore" });
+        console.error(`     → opened in Apple Podcasts`);
+      }
+    } else {
+      console.error("  1. Open this episode in Apple Podcasts");
+    }
     console.error("  2. Click ⋯ (More) → View Transcript, and let it finish loading");
     console.error("  3. Re-run this command, or run it with --find and pick your episode");
     process.exit(1);

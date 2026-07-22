@@ -95,8 +95,10 @@ npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts --reveal 2  # show #2 in Finder
 **4b — automatic lookup (convenience).** Reads the Podcasts library database to map an episode URL straight to its cached file. Offer it when the user would rather not hunt for files:
 
 ```bash
-npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts "<apple-podcasts-episode-url>"
+npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts "<apple-podcasts-episode-url>" [--open]
 ```
+
+This also answers a question no other rung can: **whether Apple has a transcript for this episode at all.** If it reports one exists but is not cached, that is worth saying out loud — an official transcript is one click away and beats transcribing the audio. Guide the user through it, and offer `--open` to open the episode in Podcasts for them so they only have to click ⋯ → View Transcript. Then rerun. Do not fall through to rung 5 while a free official transcript is sitting there.
 
 Shared options: `-o <path>`, `--format text|srt|json`, `--list`.
 
@@ -112,7 +114,11 @@ bash ${SKILL_DIR}/scripts/asr.sh "<audioUrl-from-rung-0>" -o /tmp/transcript.md 
   -t "<episode title>" -s "<episode link>" -e groq -l "<language-from-rung-0>"
 ```
 
-**Take `-l` from rung 0's `language` field — never from your own impression of the show.** That field comes from the feed's declared language, or from CJK characters in the titles. If it is absent, omit `-l` entirely and let Whisper auto-detect; a wrong language flag produces a much worse transcript than no flag. For Chinese, the script also passes a punctuation style prompt, because Whisper otherwise returns Chinese with no punctuation at all.
+**Take `-l` from rung 0's `language` field — never from your own impression of the show.** That field comes from the feed's declared `<language>`, or from CJK characters in the titles.
+
+**If `language` is absent, ask the user which language the episode is in.** You are in a conversation with them; a one-line question is cheaper than a bad transcript, and they know the show. Only fall back to omitting `-l` (Whisper auto-detects) if they are not sure either. A wrong language flag is worse than no flag.
+
+For Chinese, the script also passes a punctuation style prompt, because Whisper otherwise returns Chinese with no punctuation at all — leaving a wall of text that nothing downstream can paragraph.
 
 Handles download, transcode, 20MB chunking, rate-limit retry, merge.
 
