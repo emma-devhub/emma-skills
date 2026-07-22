@@ -23,15 +23,15 @@ Work through the rungs IN ORDER. Stop at the first rung that yields a transcript
 
 Tell them what to do — not what you tried. Which rungs you climbed is your bookkeeping; they only need to know that something better exists, how to get it, and what happens if they skip it. When 4b reports a transcript that is not cached yet:
 
-> Apple has an official transcript for this episode, but it takes one tap from you:
+> Apple has an official transcript for this episode but hasn't saved it to your Mac.
 >
-> open the episode in Apple Podcasts → click ⋯ → View Transcript → let it load, then tell me.
+> Opening it in Podcasts sometimes makes it save: open the episode → ⋯ → View Transcript → let it load, then tell me. Worth 15 seconds if you want the better transcript, but it doesn't always work.
 >
-> Want me to open the episode for you?
->
-> If you'd rather not bother, I can transcribe the audio instead — a few minutes, and a rougher transcript.
+> Want me to open the episode for you? Or I can just transcribe the audio — a few minutes, rougher result.
 
 Keep it about that short. No rung numbers, no summary of the free paths you already tried, no explanation of what the skill will and will not read — the README covers that, and raising it unprompted invents a worry the user did not have. Mirror the user's language.
+
+**Do not promise that viewing the transcript will make it appear.** Measured behavior: Apple registers the transcript's path in its library database the moment it knows one exists, but writes the TTML to disk on its own schedule — sometimes not within several minutes of viewing it in the app, and independent of whether the episode is downloaded. If a retry comes up empty, say so plainly and move to rung 5 rather than asking the user to wait again.
 
 Wait for their answer. Only run rung 5 if they decline, rung 4 comes up empty, or they are not on macOS.
 
@@ -106,7 +106,7 @@ npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts --reveal 2  # show #2 in Finder
 npx -y bun ${SKILL_DIR}/scripts/apple_ttml.ts "<apple-podcasts-episode-url>" [--open]
 ```
 
-This also answers a question no other rung can: **whether Apple has a transcript for this episode at all.** If it reports one exists but is not cached, that is worth saying out loud — an official transcript is one click away and beats transcribing the audio. Guide the user through it, and offer `--open` to open the episode in Podcasts for them so they only have to click ⋯ → View Transcript. Then rerun. Do not fall through to rung 5 while a free official transcript is sitting there.
+This also answers a question no other rung can: **whether Apple has a transcript for this episode at all.** If it reports one exists but is not cached, say so and offer the steps above (with `--open` if they want the episode opened for them) — but see the warning about not over-promising. Rung 4 is opportunistic: it is excellent when Apple has already written the file, and there is no way to force the write without driving the app, which this skill does not do.
 
 Shared options: `-o <path>`, `--format text|srt|json`, `--list`.
 

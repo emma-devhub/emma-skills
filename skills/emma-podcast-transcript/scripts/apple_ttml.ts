@@ -473,8 +473,11 @@ async function main() {
   } else {
     // 3b. Apple knows about a transcript but has not written it to disk yet.
     // Tell the user how to make Apple cache it — we do not drive the app for them.
-    console.error("\nApple Podcasts has a transcript for this episode but has not cached it yet.");
-    console.error("\nTo get it (about 15 seconds, all in your own hands):");
+    console.error("\nApple has an official transcript for this episode, but has not saved it");
+    console.error("to this Mac, so there is no file to read yet.");
+    console.error("\nViewing it in Podcasts SOMETIMES makes Apple save it, and sometimes does");
+    console.error("not — the timing is Apple's, not ours, and it can take a while or never");
+    console.error("happen. Worth 15 seconds if you want the better transcript:");
     if (storeTrackId && podcastCollectionId) {
       const deepLink = `pcast://podcasts.apple.com/podcast/id${podcastCollectionId}?i=${storeTrackId}`;
       console.error(`  1. Open the episode:  ${deepLink}`);
@@ -487,7 +490,8 @@ async function main() {
       console.error("  1. Open this episode in Apple Podcasts");
     }
     console.error("  2. Click ⋯ (More) → View Transcript, and let it finish loading");
-    console.error("  3. Re-run this command, or run it with --find and pick your episode");
+    console.error("  3. Re-run this command");
+    console.error("\nIf it still is not there, stop waiting and transcribe the audio instead.");
     process.exit(1);
   }
 
